@@ -1,0 +1,19 @@
+# 真实配置与密钥：任何情况下都不入库
+config/config.json
+*private*
+*.key
+*.pem
+*.crt
+*.conf
+
+# 自检临时文件
+.reality_selftest_client.json
+
+# 配置备份
+*.bak
+*.bak-*
+
+# 运行时
+*.log
+__pycache__/
+*.pyc
