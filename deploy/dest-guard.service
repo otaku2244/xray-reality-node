@@ -1,0 +1,12 @@
+[Unit]
+Description=REALITY dest guard (detect transparent CDN takeover)
+Documentation=https://github.com/otaku2244/xray-reality-node
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/xray-guard/dest_guard.py
+TimeoutStartSec=120
+Nice=10
+IOSchedulingClass=idle

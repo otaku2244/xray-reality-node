@@ -139,6 +139,67 @@ python3 scripts/reality_selftest.py
 
 ---
 
+## 伪装目标体检与巡检
+
+REALITY 的安全性有一半押在 `dest` 上。选错了不会立刻报错，而是安静地变弱，直到被针对性打击。两个典型坑：
+
+- **握手参数不达标**：目标站点不支持 TLS 1.3、密钥交换不是 X25519、或者 ALPN 协商不出 h2，那么你这台服务器的 TLS 指纹跟真实站点对不上，伪装穿了但露了线
+- **dest 被套进透明 CDN**：域名本来直连，某天 DNS 被换成 Cloudflare 之类的前置节点。此后所有未认证流量（扫描器、爬虫、误连的浏览器）都被你的服务器原样转发出去 —— 你在给 CDN 做免费反代，流量费你付
+
+### 体检（一次性，可选多个候选）
+
+```bash
+./scripts/dest_check.py                      # 不带参数：体检当前配置里的 dest
+./scripts/dest_check.py www.amazon.com
+./scripts/dest_check.py a.com b.com --json   # 批量对比，机器可读
+```
+
+检查六项：DNS 与 ASN 归属、TLS 1.3、密钥交换是否 X25519、ALPN 是否 h2、证书是否匹配该 SNI 及剩余天数、TCP 握手延迟。输出形如：
+
+```
+== www.amazon.com ==
+  18.65.75.124 AS16509    AS16509 Amazon.com, Inc.  HK/Hong Kong
+  TLS         TLSv1.3  TLS_AES_128_GCM_SHA256  密钥交换 X25519
+  证书        CN=www.amazon.com  issuer=Amazon RSA 2048 M04  剩余 82 天
+  延迟        2.8 ms
+  判定        PASS
+```
+
+判定规则：
+
+| 判定 | 触发条件 |
+|---|---|
+| FAIL | 无 A 记录；无 TLS 1.3；ALPN 非 h2；证书 SAN 不匹配；证书 7 天内过期；IP 落在 Cloudflare（AS13335/AS209242） |
+| WARN | 密钥交换非 X25519；挂在 Fastly/Akamai 等第三方 CDN；证书 30 天内过期；延迟 > 150 ms；多个 IP 分属不同 ASN |
+| PASS | 以上都不触发 |
+
+退出码 `0/1/2` 对应 `PASS/FAIL/WARN`，可以塞进部署脚本做门禁。
+
+> 落在 CloudFront（AS16509）、Google（AS15169）这类**大厂自有 CDN** 不算问题，伪装性反而更好：IP 被海量域名共享，边缘节点就近响应。它跟“域名被别人挂到第三方 CDN 上”是两件事。
+
+### 巡检（每小时，只读）
+
+```bash
+./scripts/install-guard.sh            # 安装并启用 dest-guard.timer
+./scripts/install-guard.sh --remove   # 卸载
+```
+
+装好后每小时跑一次 `dest_guard.py`：解析 dest、查 ASN、比对 CDN 名单，命中 Cloudflare 就返回非 0 并记 `ALERT`。它**不改配置、不重启服务**，只看不动。
+
+```bash
+systemctl list-timers dest-guard.timer    # 下次执行时间
+journalctl -u dest-guard.service -n 20    # 历史结果（Normal 时无输出，只有异常才有日志）
+cat /var/lib/dest-guard/state.json        # 最近一次的 IP 与 ASN
+```
+
+发现 `ALERT` 时的处理：换一个 dest。改 `/usr/local/etc/xray/config.json` 里的 `serverNames`、`dest`、`target` 三处为同一域名，`xray run -test` 校验后 `systemctl restart xray`，再用 `dest_check.py` 复检。
+
+想换频率就改 `/etc/systemd/system/dest-guard.timer` 的 `OnCalendar`，然后 `systemctl daemon-reload && systemctl restart dest-guard.timer`。
+
+需要异常推送的话，给 service 加两个环境变量即可（`Environment=TG_BOT_TOKEN=...`、`Environment=TG_CHAT_ID=...`），只有命中风险时才会发。
+
+---
+
 ## 密钥轮换
 
 怀疑泄露时，重新生成全套参数（客户端需要重新导入）：

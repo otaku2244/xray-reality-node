@@ -112,8 +112,13 @@ $LINK
   flow       xtls-rprx-vision
   端口       $PORT
 
-下一步：跑一次端到端自检（不依赖你的手机）
-  python3 $ROOT_SRC/scripts/reality_selftest.py
+下一步：验证
+  1) 体检伪装目标（换过 REALITY_DEST 时一定要跑，不合格的 dest 会让伪装形同虚设）
+       python3 $ROOT_SRC/scripts/dest_check.py $DEST
+  2) 端到端自检（不依赖你的手机）
+       python3 $ROOT_SRC/scripts/reality_selftest.py
+  3) 需要长期盯住 dest 有没有被套 CDN，装每小时巡检
+       $ROOT_SRC/scripts/install-guard.sh
 
 注意：私钥只存在于 $CFG，不要提交到任何仓库，不要发给任何人。
 EOF
